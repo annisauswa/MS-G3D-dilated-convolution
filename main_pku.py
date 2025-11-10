@@ -44,8 +44,8 @@ def get_parser():
     parser.add_argument('--model_saved_name', default='')
     parser.add_argument(
         '--config',
-        default='./config/nturgbd-cross-subject/train_joint.yaml',
-        # default='./config/nturgbd-cross-subject/train_joint_msg3d2.yaml',
+        # default='./config/nturgbd-cross-subject/train_joint.yaml',
+        default='/home/dsp520/Annisa/MS-G3D/config/nturgbd-cross-subject/train_joint_msg3d2.yaml',
         help='path to the configuration file')
     parser.add_argument(
         '--assume-yes',
@@ -472,13 +472,20 @@ class Processor():
         self.print_log(f'Training epoch: {epoch + 1}, LR: {current_lr:.4f}')
 
         process = tqdm(loader, dynamic_ncols=True)
-        for batch_idx, (data, label, index) in enumerate(process):
-            print(data.shape, label.shape, index.shape)
+        for batch_idx, (data, label, distance, index) in enumerate(process):
+            # print(data.shape, label.shape, index)
             self.global_step += 1
+
+            # reshape data
+            data = data.view(data.shape[0], data.shape[1], 2, 25, 3)   # reshape to [N, T, M, V, C]
+            data = data.permute(0, 4, 1, 3, 2) # reorder to [N, C, T, V, M]
+
             # get data
+
             with torch.no_grad():
                 data = data.float().cuda(self.output_device)
                 label = label.long().cuda(self.output_device)
+                distance = distance.long().cuda(self.output_device)
             timer['dataloader'] += self.split_time()
 
             # backward
@@ -687,7 +694,7 @@ def main():
     p = parser.parse_args()
     if p.config is not None:
         with open(p.config, 'r') as f:
-            default_arg = yaml.load(f)
+            default_arg = yaml.load(f, Loader=yaml.FullLoader)
         key = vars(p).keys()
         for k in default_arg.keys():
             if k not in key:

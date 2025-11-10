@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 from __future__ import print_function
 import os
 import time
@@ -21,7 +20,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 import apex
 
 from utils import count_params, import_class
-
+from model.ssnet_tools import SSNetLoss
 
 
 def init_seed(seed):
@@ -44,8 +43,8 @@ def get_parser():
     parser.add_argument('--model_saved_name', default='')
     parser.add_argument(
         '--config',
-        default='./config/nturgbd-cross-subject/train_joint.yaml',
-        # default='./config/nturgbd-cross-subject/train_joint_msg3d2.yaml',
+        # default='./config/nturgbd-cross-subject/train_joint.yaml',
+        default='./config/nturgbd-cross-subject/train_joint_msg3d2.yaml',
         help='path to the configuration file')
     parser.add_argument(
         '--assume-yes',
@@ -243,12 +242,16 @@ class Processor():
                     else:
                         print('Dir not removed:', logdir)
 
-                self.train_writer = SummaryWriter(os.path.join(logdir, 'train'), 'train')
-                self.val_writer = SummaryWriter(os.path.join(logdir, 'val'), 'val')
+                self.train_writer = SummaryWriter(
+                    os.path.join(logdir, 'train'), 'train')
+                self.val_writer = SummaryWriter(
+                    os.path.join(logdir, 'val'), 'val')
             else:
-                self.train_writer = SummaryWriter(os.path.join(logdir, 'debug'), 'debug')
+                self.train_writer = SummaryWriter(
+                    os.path.join(logdir, 'debug'), 'debug')
 
         self.load_model()
+        self.loss = SSNetLoss(alpha=0.5)
         self.load_param_groups()
         self.load_optimizer()
         self.load_lr_scheduler()
@@ -269,11 +272,13 @@ class Processor():
                 opt_level=f'O{self.arg.amp_opt_level}'
             )
             if self.arg.amp_opt_level != 1:
-                self.print_log('[WARN] nn.DataParallel is not yet supported by amp_opt_level != "O1"')
+                self.print_log(
+                    '[WARN] nn.DataParallel is not yet supported by amp_opt_level != "O1"')
 
         if type(self.arg.device) is list:
             if len(self.arg.device) > 1:
-                self.print_log(f'{len(self.arg.device)} GPUs available, using DataParallel')
+                self.print_log(
+                    f'{len(self.arg.device)} GPUs available, using DataParallel')
                 self.model = nn.DataParallel(
                     self.model,
                     device_ids=self.arg.device,
@@ -286,13 +291,14 @@ class Processor():
         self.output_device = output_device
         Model = import_class(self.arg.model)
 
-        # Copy model file and main
         shutil.copy2(inspect.getfile(Model), self.arg.work_dir)
         shutil.copy2(os.path.join('.', __file__), self.arg.work_dir)
 
         self.model = Model(**self.arg.model_args).cuda(output_device)
         self.loss = nn.CrossEntropyLoss().cuda(output_device)
-        self.print_log(f'Model total number of params: {count_params(self.model)}')
+        self.reg_loss = nn.MSELoss().cuda(output_device)
+        self.print_log(
+            f'Model total number of params: {count_params(self.model)}')
 
         if self.arg.weights:
             try:
@@ -358,33 +364,42 @@ class Processor():
                 lr=self.arg.base_lr,
                 weight_decay=self.arg.weight_decay)
         else:
-            raise ValueError('Unsupported optimizer: {}'.format(self.arg.optimizer))
+            raise ValueError(
+                'Unsupported optimizer: {}'.format(self.arg.optimizer))
 
         # Load optimizer states if any
         if self.arg.checkpoint is not None:
-            self.print_log(f'Loading optimizer states from: {self.arg.checkpoint}')
-            self.optimizer.load_state_dict(torch.load(self.arg.checkpoint)['optimizer_states'])
+            self.print_log(
+                f'Loading optimizer states from: {self.arg.checkpoint}')
+            self.optimizer.load_state_dict(torch.load(
+                self.arg.checkpoint)['optimizer_states'])
             current_lr = self.optimizer.param_groups[0]['lr']
             self.print_log(f'Starting LR: {current_lr}')
-            self.print_log(f'Starting WD1: {self.optimizer.param_groups[0]["weight_decay"]}')
+            self.print_log(
+                f'Starting WD1: {self.optimizer.param_groups[0]["weight_decay"]}')
             if len(self.optimizer.param_groups) >= 2:
-                self.print_log(f'Starting WD2: {self.optimizer.param_groups[1]["weight_decay"]}')
+                self.print_log(
+                    f'Starting WD2: {self.optimizer.param_groups[1]["weight_decay"]}')
 
     def load_lr_scheduler(self):
-        self.lr_scheduler = MultiStepLR(self.optimizer, milestones=self.arg.step, gamma=0.1)
+        self.lr_scheduler = MultiStepLR(
+            self.optimizer, milestones=self.arg.step, gamma=0.1)
         if self.arg.checkpoint is not None:
-            scheduler_states = torch.load(self.arg.checkpoint)['lr_scheduler_states']
-            self.print_log(f'Loading LR scheduler states from: {self.arg.checkpoint}')
+            scheduler_states = torch.load(self.arg.checkpoint)[
+                'lr_scheduler_states']
+            self.print_log(
+                f'Loading LR scheduler states from: {self.arg.checkpoint}')
             self.lr_scheduler.load_state_dict(scheduler_states)
-            self.print_log(f'Starting last epoch: {scheduler_states["last_epoch"]}')
-            self.print_log(f'Loaded milestones: {scheduler_states["last_epoch"]}')
+            self.print_log(
+                f'Starting last epoch: {scheduler_states["last_epoch"]}')
+            self.print_log(
+                f'Loaded milestones: {scheduler_states["last_epoch"]}')
 
     def load_data(self):
         Feeder = import_class(self.arg.feeder)
         self.data_loader = dict()
 
         def worker_seed_fn(worker_id):
-            # give workers different seeds
             return init_seed(self.arg.seed + worker_id + 1)
 
         if self.arg.phase == 'train':
@@ -440,124 +455,225 @@ class Processor():
         os.makedirs(out_folder_path, exist_ok=True)
         torch.save(states, out_path)
 
-    def save_checkpoint(self, epoch, out_folder='checkpoints'):
+    def save_checkpoint(self, epoch, out_folder='checkpoints', filename=None):
         state_dict = {
             'epoch': epoch,
             'optimizer_states': self.optimizer.state_dict(),
             'lr_scheduler_states': self.lr_scheduler.state_dict(),
         }
 
-        checkpoint_name = f'checkpoint-{epoch}-fwbz{self.arg.forward_batch_size}-{int(self.global_step)}.pt'
+        # Use the provided filename if given, else fallback to default
+        checkpoint_name = filename or f'checkpoint-{epoch}-fwbz{self.arg.forward_batch_size}-{int(self.global_step)}.pt'
         self.save_states(epoch, state_dict, out_folder, checkpoint_name)
 
-    def save_weights(self, epoch, out_folder='weights'):
+    def save_weights(self, epoch, out_folder='weights', filename=None):
         state_dict = self.model.state_dict()
         weights = OrderedDict([
             [k.split('module.')[-1], v.cpu()]
             for k, v in state_dict.items()
         ])
 
-        weights_name = f'weights-{epoch}-{int(self.global_step)}.pt'
+        # Use the provided filename if given, else fallback to default
+        weights_name = filename or f'weights-{epoch}-{int(self.global_step)}.pt'
         self.save_states(epoch, weights, out_folder, weights_name)
+
+    # def train(self, epoch, save_model=False):
+    #     self.model.train()
+    #     loader = self.data_loader['train']
+    #     loss_values = []
+    #     self.train_writer.add_scalar('epoch', epoch + 1, self.global_step)
+    #     self.record_time()
+    #     timer = dict(dataloader=0.001, model=0.001, statistics=0.001)
+
+    #     current_lr = self.optimizer.param_groups[0]['lr']
+    #     self.print_log(f'Training epoch: {epoch + 1}, LR: {current_lr:.4f}')
+
+    #     process = tqdm(loader, dynamic_ncols=True)
+    #     for batch_idx, (data, label, distance, index) in enumerate(process):
+    #         self.global_step += 1
+
+    #         with torch.no_grad():
+    #             data = data.float().cuda(self.output_device)
+    #             label = label.long().cuda(self.output_device)
+    #             distance = distance.float().cuda(self.output_device)
+
+    #             # Normalize distance to layer range [0, num_layers)
+    #             dist_max = torch.clamp(distance.max(), min=1.0)
+    #             st_val = (distance / dist_max) * self.model.num_layers
+    #             st_val = torch.clamp(st_val, 0, self.model.num_layers - 1)
+
+    #         timer['dataloader'] += self.split_time()
+    #         self.optimizer.zero_grad()
+
+    #         ############## Gradient Accumulation for Smaller Batches ##############
+    #         real_batch_size = self.arg.forward_batch_size
+    #         splits = len(data) // real_batch_size
+    #         assert len(data) % real_batch_size == 0, \
+    #             'Real batch size should be a factor of arg.batch_size!'
+
+    #         for i in range(splits):
+    #             left = i * real_batch_size
+    #             right = left + real_batch_size
+    #             batch_data, batch_label, batch_st_val = data[left:
+    #                                                          right], label[left:right], st_val[left:right]
+
+    #             # forward
+    #             logits, s_pred = self.model(batch_data, st_prev=batch_st_val)
+    #             if isinstance(logits, tuple):
+    #                 logits, l1 = logits
+    #                 l1 = l1.mean()
+    #             else:
+    #                 l1 = 0
+
+    #             loss, cls_loss, reg_loss = self.loss(
+    #                 logits, s_pred, batch_label, distance[left:right])
+
+    #             if torch.isnan(loss):
+    #                 print("NaN detected in loss at batch", batch_idx)
+    #                 continue
+
+    #             if self.arg.half:
+    #                 with apex.amp.scale_loss(loss, self.optimizer) as scaled_loss:
+    #                     scaled_loss.backward()
+    #             else:
+    #                 loss.backward()
+
+    #             loss_values.append(loss.item())
+    #             timer['model'] += self.split_time()
+
+    #             # Display loss
+    #             process.set_description(
+    #                 f'(BS {real_batch_size}) loss: {loss.item():.4f}')
+
+    #             value, predict_label = torch.max(logits, 1)
+    #             acc = torch.mean((predict_label == batch_label).float())
+
+    #             self.train_writer.add_scalar('acc', acc, self.global_step)
+    #             # self.train_writer.add_scalar(
+    #             #     'loss', loss.item() * splits, self.global_step)
+    #             self.train_writer.add_scalar(
+    #                 'loss/total', loss.item(), self.global_step)
+    #             self.train_writer.add_scalar(
+    #                 'loss/classification', cls_loss.item(), self.global_step)
+    #             self.train_writer.add_scalar(
+    #                 'loss/regression', reg_loss.item(), self.global_step)
+    #             self.train_writer.add_scalar('loss_l1', l1, self.global_step)
+
+    #         #####################################
+
+    #         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+    #         self.optimizer.step()
+
+    #         # statistics
+    #         self.lr = self.optimizer.param_groups[0]['lr']
+    #         self.train_writer.add_scalar('lr', self.lr, self.global_step)
+    #         timer['statistics'] += self.split_time()
+
+    #         del logits, s_pred, loss, cls_loss, reg_loss
+
+    #     # statistics of time consumption and loss
+    #     # proportion = {
+    #     #     k: f'{int(round(v * 100 / sum(timer.values()))):02d}%'
+    #     #     for k, v in timer.items()
+    #     # }
+
+    #     mean_loss = np.mean(loss_values)
+    #     num_splits = self.arg.batch_size // self.arg.forward_batch_size
+    #     self.print_log(
+    #         f'\tMean training loss: {mean_loss:.4f} (BS {self.arg.batch_size}: {mean_loss * num_splits:.4f}).')
+    #     # self.print_log(
+    #     #     '\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
+    #     self.print_log(
+    #         f'\tTime consumption: [Data]{timer["dataloader"]:.2f}s, [Model]{timer["model"]:.2f}s')
+
+    #     # PyTorch > 1.2.0: update LR scheduler here with `.step()`
+    #     # and make sure to save the `lr_scheduler.state_dict()` as part of checkpoint
+    #     self.lr_scheduler.step()
+
+    #     if save_model:
+    #         # save training checkpoint & weights
+    #         self.save_weights(epoch + 1)
+    #         self.save_checkpoint(epoch + 1)
 
     def train(self, epoch, save_model=False):
         self.model.train()
-        loader = self.data_loader['train']
+        process = tqdm(self.data_loader['train'], dynamic_ncols=True)
         loss_values = []
-        self.train_writer.add_scalar('epoch', epoch + 1, self.global_step)
-        self.record_time()
-        timer = dict(dataloader=0.001, model=0.001, statistics=0.001)
+        total_loss = total_cls = total_reg = 0.0
 
-        current_lr = self.optimizer.param_groups[0]['lr']
-        self.print_log(f'Training epoch: {epoch + 1}, LR: {current_lr:.4f}')
+        for batch_idx, (batch_data, batch_label, distance, index) in enumerate(process):
+            batch_data = batch_data.float().to(self.output_device)       # (B, T, C)
+            batch_label = batch_label.long().to(self.output_device)      # (B,)
+            distance = distance.float().to(self.output_device)           # (B,)
 
-        process = tqdm(loader, dynamic_ncols=True)
-        for batch_idx, (data, label, index) in enumerate(process):
-            print(data.shape, label.shape, index.shape)
-            self.global_step += 1
-            # get data
-            with torch.no_grad():
-                data = data.float().cuda(self.output_device)
-                label = label.long().cuda(self.output_device)
-            timer['dataloader'] += self.split_time()
+            # 🔹 Normalize distance to [0, 1]
+            distance_norm = distance / 255.0
+            distance_norm = torch.clamp(distance_norm, 0.0, 1.0)
 
-            # backward
+            # 🔹 Forward pass
+            logits, s_pred = self.model(batch_data, distance=distance)
+
+            # 🔹 Compute losses (classification + regression)
+            loss, cls_loss, reg_loss = self.loss(
+                logits, s_pred, batch_label, distance_norm)
+
+            # 🔹 Debug — Detect NaN or exploding loss
+            if not torch.isfinite(loss):
+                print(
+                    f"⚠️ NaN or Inf detected at batch {batch_idx}, skipping step.")
+                self.optimizer.zero_grad()
+                continue
+
+            # 🔹 Backpropagation
             self.optimizer.zero_grad()
+            if self.arg.half:
+                with apex.amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
 
-            ############## Gradient Accumulation for Smaller Batches ##############
-            real_batch_size = self.arg.forward_batch_size
-            splits = len(data) // real_batch_size
-            assert len(data) % real_batch_size == 0, \
-                'Real batch size should be a factor of arg.batch_size!'
+            # 🔹 Clip gradients to avoid explosion
+            torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(), max_norm=1.0)
 
-            for i in range(splits):
-                left = i * real_batch_size
-                right = left + real_batch_size
-                batch_data, batch_label = data[left:right], label[left:right]
-
-                # forward
-                output = self.model(batch_data)
-                if isinstance(output, tuple):
-                    output, l1 = output
-                    l1 = l1.mean()
-                else:
-                    l1 = 0
-
-                loss = self.loss(output, batch_label) / splits
-
-                if self.arg.half:
-                    with apex.amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    loss.backward()
-
-                loss_values.append(loss.item())
-                timer['model'] += self.split_time()
-
-                # Display loss
-                process.set_description(f'(BS {real_batch_size}) loss: {loss.item():.4f}')
-
-                value, predict_label = torch.max(output, 1)
-                acc = torch.mean((predict_label == batch_label).float())
-
-                self.train_writer.add_scalar('acc', acc, self.global_step)
-                self.train_writer.add_scalar('loss', loss.item() * splits, self.global_step)
-                self.train_writer.add_scalar('loss_l1', l1, self.global_step)
-
-            #####################################
-
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 2)
+            # 🔹 Update weights
             self.optimizer.step()
 
-            # statistics
-            self.lr = self.optimizer.param_groups[0]['lr']
-            self.train_writer.add_scalar('lr', self.lr, self.global_step)
-            timer['statistics'] += self.split_time()
+            # 🔹 Scheduler step (if per-batch)
+            if self.lr_scheduler and hasattr(self.lr_scheduler, "step_per_batch"):
+                self.lr_scheduler.step()
 
-            # Delete output/loss after each batch since it may introduce extra mem during scoping
-            # https://discuss.pytorch.org/t/gpu-memory-consumption-increases-while-training/2770/3
-            del output
-            del loss
+            # 🔹 Track metrics
+            loss_values.append(loss.item())
+            total_loss += loss.item()
+            total_cls += cls_loss.item()
+            total_reg += reg_loss.item()
 
-        # statistics of time consumption and loss
-        proportion = {
-            k: f'{int(round(v * 100 / sum(timer.values()))):02d}%'
-            for k, v in timer.items()
-        }
+            # 🔹 Display progress
+            process.set_description(
+                f"(BS {batch_data.size(0)}) loss: {loss.item():.4f}")
 
-        mean_loss = np.mean(loss_values)
-        num_splits = self.arg.batch_size // self.arg.forward_batch_size
-        self.print_log(f'\tMean training loss: {mean_loss:.4f} (BS {self.arg.batch_size}: {mean_loss * num_splits:.4f}).')
-        self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
+        avg_loss = total_loss / len(loss_values)
+        avg_cls = total_cls / len(loss_values)
+        avg_reg = total_reg / len(loss_values)
+        print(
+            f"Epoch {epoch+1} — Avg loss: {avg_loss:.4f} | cls: {avg_cls:.4f} | reg: {avg_reg:.4f}")
 
-        # PyTorch > 1.2.0: update LR scheduler here with `.step()`
-        # and make sure to save the `lr_scheduler.state_dict()` as part of checkpoint
-        self.lr_scheduler.step()
+        # 🔹 Save checkpoint
+        self.save_checkpoint(epoch + 1, out_folder='checkpoints',
+                             filename=f'checkpoint-{epoch}-latest.pt')
+        self.save_weights(epoch + 1, out_folder='weights',
+                          filename=f'weights-{epoch}-latest.pt')
 
-        if save_model:
-            # save training checkpoint & weights
-            self.save_weights(epoch + 1)
-            self.save_checkpoint(epoch + 1)
+        if avg_loss < self.best_loss:
+            self.best_loss = avg_loss
+            self.best_acc_epoch = epoch + 1
+            self.save_checkpoint(
+                epoch + 1, out_folder='checkpoints', filename=f'checkpoint-{epoch}-best.pt')
+            self.save_weights(epoch + 1, out_folder='weights',
+                              filename=f'weights-{epoch}-best.pt')
+            self.print_log(
+                f"Best model at epoch {epoch + 1} (loss={avg_loss:.4f})")
 
     def eval(self, epoch, save_score=False, loader_name=['test'], wrong_file=None, result_file=None):
         # Skip evaluation if too early
@@ -577,20 +693,26 @@ class Processor():
                 score_batches = []
                 step = 0
                 process = tqdm(self.data_loader[ln], dynamic_ncols=True)
-                for batch_idx, (data, label, index) in enumerate(process):
+                for batch_idx, (data, label, distance, index) in enumerate(process):
+                    # print(data.shape, label, distance)
                     data = data.float().cuda(self.output_device)
                     label = label.long().cuda(self.output_device)
-                    output = self.model(data)
-                    if isinstance(output, tuple):
-                        output, l1 = output
+                    distance = distance.float().cuda(self.output_device)
+
+                    logits, s_pred = self.model(data)
+                    s_pred = s_pred / distance.max()
+                    distance = distance / distance.max()
+                    if isinstance(logits, tuple):
+                        logits, l1 = logits
                         l1 = l1.mean()
                     else:
                         l1 = 0
-                    loss = self.loss(output, label)
-                    score_batches.append(output.data.cpu().numpy())
+                    loss, cls_loss, reg_loss = self.loss(
+                        logits, s_pred, label, distance)
+                    score_batches.append(logits.data.cpu().numpy())
                     loss_values.append(loss.item())
 
-                    _, predict_label = torch.max(output.data, 1)
+                    _, predict_label = torch.max(logits.data, 1)
                     step += 1
 
                     if wrong_file is not None or result_file is not None:
@@ -600,7 +722,8 @@ class Processor():
                             if result_file is not None:
                                 f_r.write(str(x) + ',' + str(true[i]) + '\n')
                             if x != true[i] and wrong_file is not None:
-                                f_w.write(str(index[i]) + ',' + str(x) + ',' + str(true[i]) + '\n')
+                                f_w.write(
+                                    str(index[i]) + ',' + str(x) + ',' + str(true[i]) + '\n')
 
             score = np.concatenate(score_batches)
             loss = np.mean(loss_values)
@@ -615,10 +738,13 @@ class Processor():
                 self.val_writer.add_scalar('loss_l1', l1, self.global_step)
                 self.val_writer.add_scalar('acc', accuracy, self.global_step)
 
-            score_dict = dict(zip(self.data_loader[ln].dataset.sample_name, score))
-            self.print_log(f'\tMean {ln} loss of {len(self.data_loader[ln])} batches: {np.mean(loss_values)}.')
+            score_dict = dict(
+                zip(self.data_loader[ln].dataset.sample_name, score))
+            self.print_log(
+                f'\tMean {ln} loss of {len(self.data_loader[ln])} batches: {np.mean(loss_values)}.')
             for k in self.arg.show_topk:
-                self.print_log(f'\tTop {k}: {100 * self.data_loader[ln].dataset.top_k(score, k):.2f}%')
+                self.print_log(
+                    f'\tTop {k}: {100 * self.data_loader[ln].dataset.top_k(score, k):.2f}%')
 
             if save_score:
                 with open('{}/epoch{}_{}_score.pkl'.format(self.arg.work_dir, epoch + 1, ln), 'wb') as f:
@@ -629,15 +755,32 @@ class Processor():
 
     def start(self):
         if self.arg.phase == 'train':
+            self.best_loss = float('inf') 
+            self.best_acc = 0.0
+            self.best_acc_epoch = 0
             self.print_log(f'Parameters:\n{pprint.pformat(vars(self.arg))}\n')
-            self.print_log(f'Model total number of params: {count_params(self.model)}')
-            self.global_step = self.arg.start_epoch * len(self.data_loader['train']) / self.arg.batch_size
+            self.print_log(
+                f'Model total number of params: {count_params(self.model)}')
+            self.global_step = self.arg.start_epoch * \
+                len(self.data_loader['train']) / self.arg.batch_size
             for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
-                save_model = ((epoch + 1) % self.arg.save_interval == 0) or (epoch + 1 == self.arg.num_epoch)
-                self.train(epoch, save_model=save_model)
-                self.eval(epoch, save_score=self.arg.save_score, loader_name=['test'])
+                # save_model = ((epoch + 1) % self.arg.save_interval == 0) or (epoch + 1 == self.arg.num_epoch)
+                self.train(epoch, save_model=False)
+                self.eval(epoch, save_score=self.arg.save_score,
+                          loader_name=['test'])
 
-            num_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+                self.save_checkpoint(
+                    epoch + 1, out_folder='checkpoints', filename=f'checkpoint-{epoch}-latest.pt')
+                if self.best_acc_epoch == epoch + 1:
+                    self.print_log(
+                        f'Best model at epoch {epoch + 1} (acc={self.best_acc:.4f})')
+                    self.save_checkpoint(
+                        epoch + 1, out_folder='checkpoints', filename=f'checkpoint-{epoch}-best.pt')
+                    self.save_weights(
+                        epoch + 1, out_folder='weights', filename=f'weights-{epoch}-best.pt')
+
+            num_params = sum(p.numel()
+                             for p in self.model.parameters() if p.requires_grad)
             self.print_log(f'Best accuracy: {self.best_acc}')
             self.print_log(f'Epoch number: {self.best_acc_epoch}')
             self.print_log(f'Model name: {self.arg.work_dir}')
@@ -645,7 +788,8 @@ class Processor():
             self.print_log(f'Weight decay: {self.arg.weight_decay}')
             self.print_log(f'Base LR: {self.arg.base_lr}')
             self.print_log(f'Batch Size: {self.arg.batch_size}')
-            self.print_log(f'Forward Batch Size: {self.arg.forward_batch_size}')
+            self.print_log(
+                f'Forward Batch Size: {self.arg.forward_batch_size}')
             self.print_log(f'Test Batch Size: {self.arg.test_batch_size}')
 
         elif self.arg.phase == 'test':
@@ -687,7 +831,7 @@ def main():
     p = parser.parse_args()
     if p.config is not None:
         with open(p.config, 'r') as f:
-            default_arg = yaml.load(f)
+            default_arg = yaml.load(f, Loader=yaml.FullLoader)
         key = vars(p).keys()
         for k in default_arg.keys():
             if k not in key:
