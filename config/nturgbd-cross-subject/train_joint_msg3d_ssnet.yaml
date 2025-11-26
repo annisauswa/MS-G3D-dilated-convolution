@@ -1,16 +1,15 @@
 amp_opt_level: 1
 assume_yes: false
 base_lr: 0.05
-batch_size: 16
+batch_size: 8
 checkpoint: null
 config: /home/user/Annisa/MS-G3D/config/nturgbd-cross-subject/train_joint_msg3d_ssnet.yaml
 debug: false
-device:
-- 0
+device: [0,1]
 eval_interval: 1
 eval_start: 1
 feeder: feeders.pku_feeder2.Feeder
-forward_batch_size: 16
+forward_batch_size: 8
 half: false
 ignore_weights: []
 log_interval: 100
@@ -40,19 +39,19 @@ start_epoch: 0
 step:
 - 30
 - 40
-test_batch_size: 16
+test_batch_size: 8
 train_feeder_args:
   data_dir: /home/user/Annisa/MS-G3D/data/pkummd/Data/PKU_Skeleton_Renew
   label_dir: /home/user/Annisa/MS-G3D/data/pkummd/Label
   split_path: /home/user/Annisa/MS-G3D/data/pkummd/Split/cross-subject.txt
   length_dir: /home/user/Annisa/MS-G3D/data/pkummd/Length
-  window_size: 30
-  stride: 30
+  window_size: 255
+  stride: 50
   mode: "train"
   yaw: 0
   pitch: 0
   roll: 0
-  label_agg: "majority"
+  label_agg: "last"
   debug: False
   random_choose: False
   random_shift: False
@@ -64,13 +63,13 @@ test_feeder_args:
   label_dir: /home/user/Annisa/MS-G3D/data/pkummd/Label
   split_path: /home/user/Annisa/MS-G3D/data/pkummd/Split/cross-subject.txt
   length_dir: /home/user/Annisa/MS-G3D/data/pkummd/Length
-  window_size: 30
+  window_size: 255
   stride: 1
   mode: "val"
   yaw: 0
   pitch: 0
   roll: 0
-  label_agg: "majority"
+  label_agg: "last"
 weight_decay: 0.0005
 weights: null
-work_dir: ./work_dir/pkummd/msg3d_ssnet_w30-s30
+work_dir: ./work_dir/pkummd/msg3d_ssnet_fixed-distance_smoothL1

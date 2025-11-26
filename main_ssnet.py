@@ -46,8 +46,8 @@ def get_parser():
     parser.add_argument(
         '--config',
         # default='./config/nturgbd-cross-subject/train_joint.yaml',
-        # default='./config/nturgbd-cross-subject/train_joint_msg3d_ssnet.yaml',
-        default='./config/nturgbd-cross-subject/test_joint_msg3d_ssnet.yaml',
+        default='./config/nturgbd-cross-subject/train_joint_msg3d_ssnet.yaml',
+        # default='./config/nturgbd-cross-subject/test_joint_msg3d_ssnet.yaml',
         help='path to the configuration file')
     parser.add_argument(
         '--assume-yes',
@@ -261,6 +261,8 @@ class Processor():
         self.best_acc = 0
         self.best_acc_epoch = 0
 
+        self.max_distance = 300.0
+
         if self.arg.half:
             self.print_log('*************************************')
             self.print_log('*** Using Half Precision Training ***')
@@ -466,7 +468,7 @@ class Processor():
     def train(self, epoch, save_model=False):
         self.model.train()
         loader = self.data_loader['train']
-        loss_values = []
+        loss_values, cls_values, reg_values = [], [], []
         self.train_writer.add_scalar('epoch', epoch + 1, self.global_step)
         self.record_time()
         timer = dict(dataloader=0.001, model=0.001, statistics=0.001)
@@ -476,7 +478,6 @@ class Processor():
 
         log_file = os.path.join(self.arg.work_dir, f'train_epoch{epoch+1}.txt')
         f_log = open(log_file, 'w')
-            
         process = tqdm(loader, dynamic_ncols=True)
         for batch_idx, (data, label, distance, total_len, index) in enumerate(process):
             # print(data.shape, label.shape, index.shape)
@@ -490,8 +491,8 @@ class Processor():
 
             # backward
             self.optimizer.zero_grad()
-            
-            distance_norm = distance / distance.max()
+
+            distance_norm = distance.float() / self.max_distance
 
             ############## Gradient Accumulation for Smaller Batches ##############
             real_batch_size = self.arg.forward_batch_size
@@ -509,22 +510,29 @@ class Processor():
                 if ((epoch + 1) % 1 == 0):
                     for i in range(batch_data.size(0)):
                         pred_dist = s_pred[i].item()
-                        pred_dist_dnorm = pred_dist * distance.max().item()
+                        pred_dist_dnorm = pred_dist* self.max_distance
+                        # pred_dist_dnorm = pred_dist * distance.max().item()
                         true_dist = distance[i].item()
                         pred_class = output[i].argmax().item()
                         true_class = batch_label[i].item()
                         f_log.write(
                             f"Batch {batch_idx}, Sample {i}, "
-                            f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.4f}, "
-                            f"s_gts: {true_dist:.4f}, class_pred: {pred_class}, class_gts: {true_class}\n"
+                            f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.0f}, st_prev: {true_dist:.0f}, s_gts: {true_dist:.0f}, T: {total_len[i].item()}, "
+                            f"class_pred: {pred_class}, class_gts: {true_class}\n"
                         )
                 # if isinstance(output, tuple):
                 #     output, l1 = output
                 #     l1 = l1.mean()
                 # else:
                 #     l1 = 0
-
-                loss, cls_loss, reg_loss = self.loss(output, s_pred, batch_label, distance_norm) 
+                s_pred_mask = s_pred.squeeze(1)  # (b)
+                mask = (batch_label != 0)  # only supervise action windows
+                if mask.sum() > 0:
+                    loss, cls_loss, reg_loss = self.loss(output, s_pred, batch_label, distance_norm, mask=mask)
+                else:
+                    # no reg supervision this mini-batch
+                    loss, cls_loss, reg_loss = self.loss(output, s_pred, batch_label, distance_norm, mask=None)
+                # loss, cls_loss, reg_loss = self.loss(output, s_pred, batch_label, distance_norm) 
                 loss = loss / splits
 
                 if self.arg.half:
@@ -534,6 +542,8 @@ class Processor():
                     loss.backward()
 
                 loss_values.append(loss.item())
+                cls_values.append(cls_loss.item())
+                reg_values.append(reg_loss.item())
                 timer['model'] += self.split_time()
 
                 # Display loss
@@ -569,8 +579,11 @@ class Processor():
         }
 
         mean_loss = np.mean(loss_values)
+        mean_cls = np.mean(cls_values)
+        mean_reg = np.mean(reg_values)
         num_splits = self.arg.batch_size // self.arg.forward_batch_size
         self.print_log(f'\tMean training loss: {mean_loss:.4f} (BS {self.arg.batch_size}: {mean_loss * num_splits:.4f}).')
+        self.print_log(f'\tClass loss: {mean_cls:.4f}, Reg loss: {mean_reg:.4f}.')
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
 
         # PyTorch > 1.2.0: update LR scheduler here with `.step()`
@@ -611,28 +624,36 @@ class Processor():
                     data = data.float().cuda(self.output_device)
                     label = label.long().cuda(self.output_device)
                     distance = distance.float().cuda(self.output_device)
-                    distance_norm = distance / distance.max()
-                    output, s_pred = self.model(data, st_prev)
-                    st_prev = s_pred + 1
+                    distance_norm = distance.float() / self.max_distance
+                    output, s_pred = self.model(data, st_prev / self.max_distance if st_prev is not None else distance_norm)
+                    st_prev = s_pred * self.max_distance + 1
                     
                     if ((epoch + 1) % 1 == 0):
                         for i in range(data.size(0)):
                             pred_dist = s_pred[i].item()
-                            pred_dist_dnorm = pred_dist * distance.max().item()
+                            pred_dist_dnorm = pred_dist * self.max_distance
+                            # pred_dist_dnorm = pred_dist * distance.max().item()
                             true_dist = distance[i].item()
                             pred_class = output[i].argmax().item()
                             true_class = label[i].item()
                             f_log.write(
                                 f"Batch {batch_idx}, Sample {i}, "
-                                f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.4f}, "
-                                f"s_gts: {true_dist:.4f}, class_pred: {pred_class}, class_gts: {true_class}\n"
+                                f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.0f}, st_prev: {st_prev[i].item():.0f}, s_gts: {true_dist:.0f}, T: {total_len}, "
+                                f"class_pred: {pred_class}, class_gts: {true_class}\n"
                             )
                     # if isinstance(output, tuple):
                     #     output, l1 = output
                     #     l1 = l1.mean()
                     # else:
                     #     l1 = 0
-                    loss, cls_loss, reg_loss  = self.loss(output, s_pred, label, distance_norm)
+                    s_pred_mask = s_pred.squeeze(1)  # (b)
+                    mask = (label != 0)  # only supervise action windows
+                    if mask.sum() > 0:
+                        loss, cls_loss, reg_loss = self.loss(output, s_pred, label, distance_norm, mask=mask)
+                    else:
+                        # no reg supervision this mini-batch
+                        loss, cls_loss, reg_loss = self.loss(output, s_pred, label, distance_norm, mask=None)
+                    # loss, cls_loss, reg_loss  = self.loss(output, s_pred, label, distance_norm)
                     score_batches.append(output.data.cpu().numpy())
                     loss_values.append(loss.item())
 

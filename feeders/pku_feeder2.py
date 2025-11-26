@@ -127,8 +127,7 @@ class Feeder(Dataset):
         data_list = []
         label_list = []
         length_list = []
-        file_frame_counts = []   # per-file frame counts (scalar each)
-        sample_names = []
+        file_frame_counts = [] 
 
         # list and sort data files
         file_list = sorted([f for f in os.listdir(
@@ -162,11 +161,12 @@ class Feeder(Dataset):
             # load labels: support both new tuple format and old plain array
             try:
                 with open(label_path) as f:
-                    sample_name, label = pickle.load(f)
+                    self.sample_name, label = pickle.load(f)
             except:
                 # for pickle file from python2
                 with open(label_path, 'rb') as f:
-                    sample_name, label = pickle.load(f, encoding='latin1')
+                    self.sample_name, label = pickle.load(
+                        f, encoding='latin1')
                     
             try:
                 with open(length_path) as f:
@@ -186,7 +186,6 @@ class Feeder(Dataset):
             label_list.append(label)     # append (Ti,)
             length_list.append(length)  # append (Ti,)
             file_frame_counts.append(data.shape[0])  # scalar Ti
-            sample_names.append(sample_name)
 
         if len(data_list) == 0:
             raise RuntimeError(
@@ -197,7 +196,6 @@ class Feeder(Dataset):
         self.label = np.concatenate(label_list, axis=0)  # shape [T_total,]
         self.length = np.concatenate(length_list, axis=0)  # shape [T_total,]
         self.file_frame_counts = np.array(file_frame_counts, dtype=np.int64)  # per-file counts
-        self.sample_names = sample_names
 
         if self.debug:
             self.label = self.label[0:1000]

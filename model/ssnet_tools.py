@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import numpy as np
 from typing import Dict, Tuple, List
@@ -35,35 +36,43 @@ SKELETON_TREE: Dict[int, List[int]] = {
     24: []
 }
 
-
 class SSNetLoss(nn.Module):
-    def __init__(self, alpha: float = 1.0):
-        """
-        alpha: weighting factor for regression loss
-        total_loss = classification_loss + alpha * regression_loss
-        """
+    def __init__(self, alpha=1.0):
         super().__init__()
         self.ce_loss = nn.CrossEntropyLoss()
-        self.mse_loss = nn.MSELoss()
+        self.reg_loss_fn = nn.SmoothL1Loss(reduction='mean')
         self.alpha = alpha
 
-    def forward(self, logits, s_pred, class_labels, distance_targets):
-        # logits: (B, 51)
-        # s_pred: (B, 1) // normalized distance predictions
-        # class_labels: (B,)
-        # distance_targets: (B,) // normalized distance values
-
-        # --- Classification loss ---
+    def forward(self, logits, s_pred, class_labels, distance_targets, mask=None):
         cls_loss = self.ce_loss(logits, class_labels)
-
-        # --- Regression loss ---
-        s_pred = s_pred.squeeze(1)  # (B,)
-        reg_loss = self.mse_loss(s_pred, distance_targets)
-
-        # --- Total ---
+        s_pred = s_pred.squeeze(1)
+        if mask is None or mask.sum() == 0:
+            reg_loss = torch.tensor(0., device=logits.device)
+        else:
+            reg_loss = self.reg_loss_fn(s_pred[mask], distance_targets[mask])
         total_loss = cls_loss + self.alpha * reg_loss
-
         return total_loss, cls_loss, reg_loss
+
+
+# class SSNetLoss(nn.Module):
+#     def __init__(self, alpha: float = 1.0):
+#         super().__init__()
+#         self.ce_loss = nn.CrossEntropyLoss()
+#         self.mse_loss = nn.MSELoss()
+#         self.alpha = alpha
+
+#     def forward(self, logits, s_pred, class_labels, distance_targets):
+#         cls_loss = self.ce_loss(logits, class_labels)
+#         s_pred = s_pred.squeeze(1)  
+#         mask = (class_labels != 0) 
+#         if mask.sum() > 0:
+#             reg_loss = self.mse_loss(s_pred[mask], distance_targets[mask])
+#         else:
+#             reg_loss = torch.tensor(0., device=s_pred.device)
+
+#         total_loss = cls_loss + self.alpha * reg_loss
+
+#         return total_loss, cls_loss, reg_loss
 
 
 def GLU(x: np.ndarray) -> np.ndarray:
