@@ -1,0 +1,76 @@
+amp_opt_level: 1
+assume_yes: false
+base_lr: 0.05
+batch_size: 16
+checkpoint: null
+config: /home/user/Annisa/MS-G3D/config/nturgbd-cross-subject/train_joint_msg3d_ssnet.yaml
+debug: false
+device:
+- 0
+eval_interval: 1
+eval_start: 1
+feeder: feeders.pku_feeder2.Feeder
+forward_batch_size: 16
+half: false
+ignore_weights: []
+log_interval: 100
+model: model.msg3d2.Model
+model_args:
+  graph: graph.ntu_rgb_d.AdjMatrixGraph
+  num_class: 52
+  num_g3d_scales: 6
+  num_gcn_scales: 13
+  num_person: 2
+  num_point: 25
+model_saved_name: ''
+nesterov: true
+num_epoch: 50
+num_worker: 16
+optimizer: SGD
+optimizer_states: null
+phase: train
+print_log: true
+save_interval: 1
+save_score: false
+seed: 137
+show_topk:
+- 1
+- 5
+start_epoch: 0
+step:
+- 30
+- 40
+test_batch_size: 16
+train_feeder_args:
+  data_dir: /home/user/Annisa/MS-G3D/data/pkummd/Data/PKU_Skeleton_Renew
+  label_dir: /home/user/Annisa/MS-G3D/data/pkummd/Label
+  split_path: /home/user/Annisa/MS-G3D/data/pkummd/Split/cross-subject.txt
+  length_dir: /home/user/Annisa/MS-G3D/data/pkummd/Length
+  window_size: 30
+  stride: 30
+  mode: "train"
+  yaw: 0
+  pitch: 0
+  roll: 0
+  label_agg: "majority"
+  debug: False
+  random_choose: False
+  random_shift: False
+  random_move: False
+  normalization: False
+
+test_feeder_args:
+  data_dir: /home/user/Annisa/MS-G3D/data/pkummd/Data/PKU_Skeleton_Renew
+  label_dir: /home/user/Annisa/MS-G3D/data/pkummd/Label
+  split_path: /home/user/Annisa/MS-G3D/data/pkummd/Split/cross-subject.txt
+  length_dir: /home/user/Annisa/MS-G3D/data/pkummd/Length
+  window_size: 30
+  stride: 1
+  mode: "val"
+  yaw: 0
+  pitch: 0
+  roll: 0
+  label_agg: "majority"
+weight_decay: 0.0005
+weights: null
+work_dir: ./work_dir/pkummd/msg3d_ssnet_w30-s30

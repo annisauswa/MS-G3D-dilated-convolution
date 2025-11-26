@@ -295,8 +295,8 @@ class Processor():
         shutil.copy2(os.path.join('.', __file__), self.arg.work_dir)
 
         self.model = Model(**self.arg.model_args).cuda(output_device)
-        self.loss = nn.CrossEntropyLoss().cuda(output_device)
-        self.reg_loss = nn.MSELoss().cuda(output_device)
+        # self.loss = nn.CrossEntropyLoss().cuda(output_device)
+        # self.reg_loss = nn.MSELoss().cuda(output_device)
         self.print_log(
             f'Model total number of params: {count_params(self.model)}')
 
@@ -477,141 +477,24 @@ class Processor():
         weights_name = filename or f'weights-{epoch}-{int(self.global_step)}.pt'
         self.save_states(epoch, weights, out_folder, weights_name)
 
-    # def train(self, epoch, save_model=False):
-    #     self.model.train()
-    #     loader = self.data_loader['train']
-    #     loss_values = []
-    #     self.train_writer.add_scalar('epoch', epoch + 1, self.global_step)
-    #     self.record_time()
-    #     timer = dict(dataloader=0.001, model=0.001, statistics=0.001)
-
-    #     current_lr = self.optimizer.param_groups[0]['lr']
-    #     self.print_log(f'Training epoch: {epoch + 1}, LR: {current_lr:.4f}')
-
-    #     process = tqdm(loader, dynamic_ncols=True)
-    #     for batch_idx, (data, label, distance, index) in enumerate(process):
-    #         self.global_step += 1
-
-    #         with torch.no_grad():
-    #             data = data.float().cuda(self.output_device)
-    #             label = label.long().cuda(self.output_device)
-    #             distance = distance.float().cuda(self.output_device)
-
-    #             # Normalize distance to layer range [0, num_layers)
-    #             dist_max = torch.clamp(distance.max(), min=1.0)
-    #             st_val = (distance / dist_max) * self.model.num_layers
-    #             st_val = torch.clamp(st_val, 0, self.model.num_layers - 1)
-
-    #         timer['dataloader'] += self.split_time()
-    #         self.optimizer.zero_grad()
-
-    #         ############## Gradient Accumulation for Smaller Batches ##############
-    #         real_batch_size = self.arg.forward_batch_size
-    #         splits = len(data) // real_batch_size
-    #         assert len(data) % real_batch_size == 0, \
-    #             'Real batch size should be a factor of arg.batch_size!'
-
-    #         for i in range(splits):
-    #             left = i * real_batch_size
-    #             right = left + real_batch_size
-    #             batch_data, batch_label, batch_st_val = data[left:
-    #                                                          right], label[left:right], st_val[left:right]
-
-    #             # forward
-    #             logits, s_pred = self.model(batch_data, st_prev=batch_st_val)
-    #             if isinstance(logits, tuple):
-    #                 logits, l1 = logits
-    #                 l1 = l1.mean()
-    #             else:
-    #                 l1 = 0
-
-    #             loss, cls_loss, reg_loss = self.loss(
-    #                 logits, s_pred, batch_label, distance[left:right])
-
-    #             if torch.isnan(loss):
-    #                 print("NaN detected in loss at batch", batch_idx)
-    #                 continue
-
-    #             if self.arg.half:
-    #                 with apex.amp.scale_loss(loss, self.optimizer) as scaled_loss:
-    #                     scaled_loss.backward()
-    #             else:
-    #                 loss.backward()
-
-    #             loss_values.append(loss.item())
-    #             timer['model'] += self.split_time()
-
-    #             # Display loss
-    #             process.set_description(
-    #                 f'(BS {real_batch_size}) loss: {loss.item():.4f}')
-
-    #             value, predict_label = torch.max(logits, 1)
-    #             acc = torch.mean((predict_label == batch_label).float())
-
-    #             self.train_writer.add_scalar('acc', acc, self.global_step)
-    #             # self.train_writer.add_scalar(
-    #             #     'loss', loss.item() * splits, self.global_step)
-    #             self.train_writer.add_scalar(
-    #                 'loss/total', loss.item(), self.global_step)
-    #             self.train_writer.add_scalar(
-    #                 'loss/classification', cls_loss.item(), self.global_step)
-    #             self.train_writer.add_scalar(
-    #                 'loss/regression', reg_loss.item(), self.global_step)
-    #             self.train_writer.add_scalar('loss_l1', l1, self.global_step)
-
-    #         #####################################
-
-    #         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-    #         self.optimizer.step()
-
-    #         # statistics
-    #         self.lr = self.optimizer.param_groups[0]['lr']
-    #         self.train_writer.add_scalar('lr', self.lr, self.global_step)
-    #         timer['statistics'] += self.split_time()
-
-    #         del logits, s_pred, loss, cls_loss, reg_loss
-
-    #     # statistics of time consumption and loss
-    #     # proportion = {
-    #     #     k: f'{int(round(v * 100 / sum(timer.values()))):02d}%'
-    #     #     for k, v in timer.items()
-    #     # }
-
-    #     mean_loss = np.mean(loss_values)
-    #     num_splits = self.arg.batch_size // self.arg.forward_batch_size
-    #     self.print_log(
-    #         f'\tMean training loss: {mean_loss:.4f} (BS {self.arg.batch_size}: {mean_loss * num_splits:.4f}).')
-    #     # self.print_log(
-    #     #     '\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
-    #     self.print_log(
-    #         f'\tTime consumption: [Data]{timer["dataloader"]:.2f}s, [Model]{timer["model"]:.2f}s')
-
-    #     # PyTorch > 1.2.0: update LR scheduler here with `.step()`
-    #     # and make sure to save the `lr_scheduler.state_dict()` as part of checkpoint
-    #     self.lr_scheduler.step()
-
-    #     if save_model:
-    #         # save training checkpoint & weights
-    #         self.save_weights(epoch + 1)
-    #         self.save_checkpoint(epoch + 1)
-
     def train(self, epoch, save_model=False):
         self.model.train()
         process = tqdm(self.data_loader['train'], dynamic_ncols=True)
         loss_values = []
         total_loss = total_cls = total_reg = 0.0
 
-        for batch_idx, (batch_data, batch_label, distance, index) in enumerate(process):
+        for batch_idx, (batch_data, batch_label, distance, total_len, index) in enumerate(process):
             batch_data = batch_data.float().to(self.output_device)       # (B, T, C)
             batch_label = batch_label.long().to(self.output_device)      # (B,)
             distance = distance.float().to(self.output_device)           # (B,)
 
             # 🔹 Normalize distance to [0, 1]
-            distance_norm = distance / 255.0
-            distance_norm = torch.clamp(distance_norm, 0.0, 1.0)
+            distance_norm = distance / distance.max()
 
             # 🔹 Forward pass
             logits, s_pred = self.model(batch_data, distance=distance)
+            s_pred = s_pred.squeeze()
+            s_pred = s_pred / distance.max()
 
             # 🔹 Compute losses (classification + regression)
             loss, cls_loss, reg_loss = self.loss(
@@ -693,15 +576,20 @@ class Processor():
                 score_batches = []
                 step = 0
                 process = tqdm(self.data_loader[ln], dynamic_ncols=True)
-                for batch_idx, (data, label, distance, index) in enumerate(process):
+                for batch_idx, (data, label, distance, total_len, index) in enumerate(process):
                     # print(data.shape, label, distance)
                     data = data.float().cuda(self.output_device)
                     label = label.long().cuda(self.output_device)
                     distance = distance.float().cuda(self.output_device)
+                    total_len = total_len.long().cuda(self.output_device)
+                    # print('label:', label, 'distance:', distance, 'total_len:', total_len)
 
                     logits, s_pred = self.model(data)
-                    s_pred = s_pred / distance.max()
+                    print('class pred:', logits.argmax(dim=1), label)
+                    print('s_pred before norm:', s_pred.squeeze(), distance)
+                    s_pred = s_pred.squeeze() / distance.max()
                     distance = distance / distance.max()
+                    # print('s_pred after norm:', s_pred, distance)
                     if isinstance(logits, tuple):
                         logits, l1 = logits
                         l1 = l1.mean()

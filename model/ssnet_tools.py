@@ -49,9 +49,9 @@ class SSNetLoss(nn.Module):
 
     def forward(self, logits, s_pred, class_labels, distance_targets):
         # logits: (B, 51)
-        # s_pred: (B, 1)
+        # s_pred: (B, 1) // normalized distance predictions
         # class_labels: (B,)
-        # distance_targets: (B,)
+        # distance_targets: (B,) // normalized distance values
 
         # --- Classification loss ---
         cls_loss = self.ce_loss(logits, class_labels)

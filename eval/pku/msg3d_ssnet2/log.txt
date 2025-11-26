@@ -1,0 +1,13 @@
+[ Wed Nov 26 22:22:57 2025 ] Model total number of params: 3579140
+[ Wed Nov 26 22:22:57 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Wed Nov 26 22:22:57 2025 ] Can not find these weights:
+[ Wed Nov 26 22:23:16 2025 ] Model total number of params: 3582220
+[ Wed Nov 26 22:23:16 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Wed Nov 26 22:23:21 2025 ] Model:   model.msg3d2.Model
+[ Wed Nov 26 22:23:21 2025 ] Weights: ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Wed Nov 26 22:23:21 2025 ] Eval epoch: 1
+[ Thu Nov 27 00:10:11 2025 ] Model total number of params: 3582220
+[ Thu Nov 27 00:10:11 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Thu Nov 27 00:10:16 2025 ] Model:   model.msg3d2.Model
+[ Thu Nov 27 00:10:16 2025 ] Weights: ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Thu Nov 27 00:10:16 2025 ] Eval epoch: 1

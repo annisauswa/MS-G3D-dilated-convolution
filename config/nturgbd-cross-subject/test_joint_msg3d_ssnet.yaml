@@ -1,0 +1,35 @@
+# feeder
+feeder: feeders.pku_feeder2.Feeder
+test_feeder_args:
+  data_dir: /home/user/Annisa/MS-G3D/data/pkummd/Data/PKU_Skeleton_Renew
+  label_agg: last
+  label_dir: /home/user/Annisa/MS-G3D/data/pkummd/Label
+  length_dir: /home/user/Annisa/MS-G3D/data/pkummd/Length
+  mode: val
+  pitch: 0
+  roll: 0
+  split_path: /home/user/Annisa/MS-G3D/data/pkummd/Split/cross-subject.txt
+  stride: 1
+  window_size: 255
+  yaw: 0
+  debug: False
+
+# model
+model: model.msg3d2.Model
+model_args:
+  num_class: 60
+  num_point: 25
+  num_person: 2
+  num_gcn_scales: 13    # `num_scales` == `K + 1` in the paper
+  num_g3d_scales: 6
+  graph: graph.ntu_rgb_d.AdjMatrixGraph
+
+# test
+phase: test
+device: [0]
+test_batch_size: 1
+weights: ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+
+
+work_dir: ./eval/pku/msg3d_ssnet2
+save_score: True

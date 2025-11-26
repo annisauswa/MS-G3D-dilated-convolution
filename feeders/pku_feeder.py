@@ -86,7 +86,7 @@ def parse_filename(filename):
 
 
 class Feeder(Dataset):
-    def __init__(self, data_dir, label_dir, split_path,
+    def __init__(self, data_dir, label_dir, length_dir, split_path,
                  window_size=255, stride=50, mode='train',
                  yaw=0, pitch=0, roll=0,
                  label_agg='last',
@@ -102,6 +102,7 @@ class Feeder(Dataset):
 
         self.data_dir = data_dir
         self.label_dir = label_dir
+        self.length_dir = length_dir
         self.window_size = window_size
         # self.stride = stride if mode == 'train' else 1
         self.stride = stride
@@ -121,9 +122,11 @@ class Feeder(Dataset):
     def load_data(self):
         print("Loading data from:", self.data_dir)
         print("Loading labels from:", self.label_dir)
+        print("Loading lengths from:", self.length_dir)
 
         data_list = []
         label_list = []
+        length_list = []
 
         # list and sort data files
         file_list = sorted([f for f in os.listdir(
@@ -151,6 +154,7 @@ class Feeder(Dataset):
 
             data_path = os.path.join(self.data_dir, fname)
             label_path = os.path.join(self.label_dir, f"{video_name}.pkl")
+            length_path = os.path.join(self.length_dir, f"{video_name}.pkl")
 
             # load data
             data = np.loadtxt(data_path)  # shape (Ti, 150)
@@ -164,8 +168,17 @@ class Feeder(Dataset):
                 with open(label_path, 'rb') as f:
                     self.sample_name, self.label = pickle.load(
                         f, encoding='latin1')
+                    
+            try:
+                with open(length_path) as f:
+                    self.length = pickle.load(f)
+            except:
+                # for pickle file from python2
+                with open(length_path, 'rb') as f:
+                    self.length = pickle.load(f, encoding='latin1')
 
             self.label = np.asarray(self.label, dtype=np.int64).reshape(-1)
+            self.length = np.asarray(self.length, dtype=np.int64).reshape(-1)
 
             if data.shape[0] != self.label.shape[0]:
                 raise ValueError(
@@ -174,6 +187,7 @@ class Feeder(Dataset):
 
             data_list.append(data)           # append (Ti, 150)
             label_list.append(self.label)     # append (Ti,)
+            length_list.append(self.length)   # append (Ti,)
 
         if len(data_list) == 0:
             raise RuntimeError(
@@ -182,11 +196,13 @@ class Feeder(Dataset):
         # concatenate all sequences (time-concatenation)
         self.data = np.concatenate(data_list)      # shape [T_total, 150]
         self.label = np.concatenate(label_list)  # shape [T_total,]
+        self.length = np.concatenate(length_list)  # shape [T_total,]
 
         if self.debug:
             self.label = self.label[0:1000]
             self.data = self.data[0:1000]
             self.sample_name = self.sample_name[0:1000]
+            self.length = self.length[0:1000]
 
         total_frames = len(self.data)
         self.windows = [
@@ -229,6 +245,7 @@ class Feeder(Dataset):
 
         data_window = self.data[start:end]      # (window_size, 150)
         label_window = self.label[start:end]   # (window_size,)
+        total_len = self.length[idx]  # (window_size,)
         out_label = self.window_labels[idx]
 
         last_class = label_window[-1]
@@ -245,199 +262,13 @@ class Feeder(Dataset):
         data_window = data_window.reshape(self.window_size, 150)
         # data_window = np.transpose(data_window, (3, 0, 2, 1))  # (3, T, 25, 2)
 
-        return data_window.astype(np.float32), out_label, distance, idx
+        return data_window.astype(np.float32), out_label, distance, total_len, idx
 
     def top_k(self, score, top_k):
         rank = score.argsort()
         hit_top_k = [l in rank[i, -top_k:]
                      for i, l in enumerate(self.window_labels)]
         return sum(hit_top_k) * 1.0 / len(hit_top_k)
-
-
-# def make_3d_anim(frames, edges=None, show_second=True,
-#                  elev=20, azim=45, interval=40,
-#                  save_as=None, dpi=100):
-#     """
-#     frames: (T, M, V, 3)
-#     edges: list of (u,v) pairs (0-based)
-#     show_second: whether to plot second person if present
-#     interval: ms between frames
-#     save_as: str or None, if path ends with .mp4 or .gif will attempt to save
-#     """
-
-#     # T, M, V, C = frames.shape
-#     # frames = frames.transpose(1, 3, 2, 0)
-#     frames = frames.reshape(-1, 2, 25, 3)  # (T, 2, 25, 3)
-#     print(frames)
-#     # frames = frames.transpose(3, 0, 2, 1)  # (3, T, 25, 2)
-#     T, M, V, C = frames.shape
-#     # detect if second person exists anywhere
-#     has_second = np.any(np.abs(frames[:,1]).sum(axis=(1,2)) > 1e-6) if M > 1 else False
-
-#     fig = plt.figure(figsize=(6,6))
-#     ax = fig.add_subplot(111, projection='3d')
-#     ax.view_init(elev=elev, azim=azim)
-
-#     # compute global bounds for axes
-#     nonzeros = frames.reshape(-1,3)[np.abs(frames.reshape(-1,3)).sum(axis=1) > 0]
-#     if nonzeros.size == 0:
-#         raise ValueError("All frames are zero!")
-#     mins = nonzeros.min(axis=0)
-#     maxs = nonzeros.max(axis=0)
-#     rng = max(maxs - mins)
-#     mid = (maxs + mins) / 2.0
-
-#     ax.set_xlim(mid[0] - rng*0.6, mid[0] + rng*0.6)
-#     ax.set_ylim(mid[1] - rng*0.6, mid[1] + rng*0.6)
-#     ax.set_zlim(mid[2] - rng*0.6, mid[2] + rng*0.6)
-#     ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
-
-#     ax.set_title("PKU-MMD Skeleton Visualization")
-
-#     def update(frame_idx):
-#         ax.cla()  # safer clear of axes before drawing
-#         ax.view_init(elev=elev, azim=azim)
-#         ax.set_xlim(mid[0] - rng*0.6, mid[0] + rng*0.6)
-#         ax.set_ylim(mid[1] - rng*0.6, mid[1] + rng*0.6)
-#         ax.set_zlim(mid[2] - rng*0.6, mid[2] + rng*0.6)
-#         ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
-#         ax.set_title(f"Frame {frame_idx+1}/{T}")
-
-#         f = frames[frame_idx]
-#         artists = []
-#         # Plot first person
-#         p0 = f[0]
-#         # skip person if all zeros
-#         if not np.allclose(p0, 0.0):
-#             xs, ys, zs = p0[:,0], p0[:,1], p0[:,2]
-#             ax.scatter(xs, ys, zs, s=30, c='b', label='P0')
-#             if edges:
-#                 for (u,v) in edges:
-#                     # safety check for indices
-#                     if u >= V or v >= V:
-#                         continue
-#                     l, = ax.plot([p0[u,0], p0[v,0]],
-#                             [p0[u,1], p0[v,1]],
-#                             [p0[u,2], p0[v,2]], c='b', lw=2)
-#                     artists.append(l)
-
-#         # Plot second person if exists
-#         if has_second and show_second:
-#             p1 = f[1]
-#             if not np.allclose(p1, 0.0):
-#                 xs2, ys2, zs2 = p1[:,0], p1[:,1], p1[:,2]
-#                 ax.scatter(xs2, ys2, zs2, s=30, c='r', label='P1')
-#                 if edges:
-#                     for (u,v) in edges:
-#                         if u >= V or v >= V:
-#                             continue
-#                         l2, = ax.plot([p1[u,0], p1[v,0]],
-#                                 [p1[u,1], p1[v,1]],
-#                                 [p1[u,2], p1[v,2]], c='r', lw=2)
-#                         artists.append(l2)
-
-#         return artists
-
-#     anim = animation.FuncAnimation(fig, update, frames=range(T), interval=interval, blit=False)
-
-#     if save_as:
-#         save_as = str(save_as)
-#         ext = os.path.splitext(save_as)[1].lower()
-#         if ext == '.mp4':
-#             Writer = animation.writers['ffmpeg']
-#             writer = Writer(fps=1000.0/interval, metadata=dict(artist='Me'), bitrate=1800)
-#             anim.save(save_as, writer=writer, dpi=dpi)
-#         elif ext == '.gif':
-#             anim.save(save_as, writer='pillow', fps=1000.0/interval, dpi=dpi)
-#         else:
-#             print("Unknown save extension, skipping save.")
-#     else:
-#         plt.show()
-
-#     return anim
-
-# def make_3d_anim(frames, edges=None, show_second=True,
-#                  elev=20, azim=45, interval=40,
-#                  save_as=None, dpi=100):
-#     frames = frames.reshape(-1, 2, 25, 3)  # (T, 2, 25, 3)
-#     print('frames after reshape in anim:', frames.shape)
-#     T, M, V, C = frames.shape
-
-#     has_second = np.any(np.abs(frames[:,1]).sum(axis=(1,2)) > 1e-6) if M > 1 else False
-
-#     fig = plt.figure(figsize=(6,6))
-#     ax = fig.add_subplot(111, projection='3d')
-#     ax.view_init(elev=elev, azim=azim)
-
-#     # compute global bounds
-#     nonzeros = frames.reshape(-1,3)[np.abs(frames.reshape(-1,3)).sum(axis=1) > 0]
-#     if nonzeros.size == 0:
-#         raise ValueError("All frames are zero!")
-#     mins = nonzeros.min(axis=0)
-#     maxs = nonzeros.max(axis=0)
-#     rng = max(maxs - mins)
-#     mid = (maxs + mins) / 2.0
-
-#     ax.set_xlim(mid[0] - rng*0.6, mid[0] + rng*0.6)
-#     ax.set_ylim(mid[1] - rng*0.6, mid[1] + rng*0.6)
-#     ax.set_zlim(mid[2] - rng*0.6, mid[2] + rng*0.6)
-#     ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
-#     ax.set_title("PKU-MMD Skeleton Visualization")
-
-#     # --- Prepare persistent artists ---
-#     scatters = [ax.scatter([], [], [], s=30, c='b'),  # P0
-#                 ax.scatter([], [], [], s=30, c='r')]  # P1
-#     lines = []
-#     if edges:
-#         for p in range(2):
-#             lines.append([ax.plot([], [], [], c='b' if p==0 else 'r', lw=2)[0] for _ in edges])
-
-#     def update(frame_idx):
-#         f = frames[frame_idx]
-
-#         # Update first person scatter
-#         p0 = f[0]
-#         if not np.allclose(p0, 0.0):
-#             scatters[0]._offsets3d = (p0[:,0], p0[:,1], p0[:,2])
-#             if edges:
-#                 for i, (u,v) in enumerate(edges):
-#                     lines[0][i].set_data([p0[u,0], p0[v,0]], [p0[u,1], p0[v,1]])
-#                     lines[0][i].set_3d_properties([p0[u,2], p0[v,2]])
-#         else:
-#             scatters[0]._offsets3d = ([], [], [])
-
-#         # Update second person
-#         if has_second and show_second:
-#             p1 = f[1]
-#             if not np.allclose(p1, 0.0):
-#                 scatters[1]._offsets3d = (p1[:,0], p1[:,1], p1[:,2])
-#                 if edges:
-#                     for i, (u,v) in enumerate(edges):
-#                         lines[1][i].set_data([p1[u,0], p1[v,0]], [p1[u,1], p1[v,1]])
-#                         lines[1][i].set_3d_properties([p1[u,2], p1[v,2]])
-#             else:
-#                 scatters[1]._offsets3d = ([], [], [])
-
-#         return scatters + sum(lines, [])
-
-#     anim = animation.FuncAnimation(fig, update, frames=T, interval=interval, blit=False)
-
-#     if save_as:
-#         save_as = str(save_as)
-#         ext = os.path.splitext(save_as)[1].lower()
-#         fps = 1000.0/interval
-#         if ext == '.mp4':
-#             Writer = animation.writers['ffmpeg']
-#             writer = Writer(fps=fps, metadata=dict(artist='Me'), bitrate=1800)
-#             anim.save(save_as, writer=writer, dpi=dpi)
-#         elif ext == '.gif':
-#             anim.save(save_as, writer='pillow', fps=fps, dpi=dpi)
-#         else:
-#             print("Unknown save extension, skipping save.")
-#     else:
-#         plt.show()
-
-#     return anim
 
 def make_3d_anim(frames, edges, save_as='anim.gif', interval=50):
     """

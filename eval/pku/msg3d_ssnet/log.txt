@@ -1,0 +1,26 @@
+[ Tue Nov 25 02:02:32 2025 ] Model total number of params: 3579140
+[ Tue Nov 25 02:02:32 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Tue Nov 25 02:02:32 2025 ] Can not find these weights:
+[ Tue Nov 25 02:02:57 2025 ] Model total number of params: 3582220
+[ Tue Nov 25 02:02:57 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Tue Nov 25 02:03:02 2025 ] 2 GPUs available, using DataParallel
+[ Tue Nov 25 02:03:39 2025 ] Model total number of params: 3582220
+[ Tue Nov 25 02:03:39 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Tue Nov 25 02:04:19 2025 ] Model total number of params: 3582220
+[ Tue Nov 25 02:04:19 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Tue Nov 25 02:04:24 2025 ] Model:   model.msg3d2.Model
+[ Tue Nov 25 02:04:24 2025 ] Weights: ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Tue Nov 25 02:04:24 2025 ] Eval epoch: 1
+[ Tue Nov 25 02:05:05 2025 ] Model total number of params: 3582220
+[ Tue Nov 25 02:05:05 2025 ] Loading weights from ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Tue Nov 25 02:05:11 2025 ] Model:   model.msg3d2.Model
+[ Tue Nov 25 02:05:11 2025 ] Weights: ./work_dir/pkummd/msg3d_ssnet/weights/weights-46-134412.pt
+[ Tue Nov 25 02:05:11 2025 ] Eval epoch: 1
+[ Tue Nov 25 06:25:47 2025 ] 	Mean test loss of 635465 batches: nan.
+[ Tue Nov 25 06:25:49 2025 ] 	Top 1: 79.45%
+[ Tue Nov 25 06:25:50 2025 ] 	Top 5: 95.71%
+[ Tue Nov 25 06:25:50 2025 ] 	Regression MSE(px):  2457.0825
+[ Tue Nov 25 06:25:50 2025 ] 	Regression RMSE(px): 49.5690
+[ Tue Nov 25 06:25:50 2025 ] 	Regression MAE(px):  39.9484
+[ Tue Nov 25 06:25:50 2025 ] Done.
+

@@ -55,7 +55,7 @@ class DilatedConv1d(nn.Module):
         self.layers = nn.ModuleList()
         self.layers.append(RecursiveLayer(
             in_channels, hidden_channels, self.dilation_rates[0]))
-        for i in range(1, num_layers):
+        for i in range(1, num_layers):  
             self.layers.append(RecursiveLayer(
                 hidden_channels, hidden_channels, self.dilation_rates[i]))
 
@@ -75,7 +75,7 @@ class DilatedConv1d(nn.Module):
             C_tl_seq = torch.zeros(B, T, out_ch, dtype=dtype, device=device)
             prev_seq = buffer[l - 1]
 
-            for t in range(T):
+            for t in reversed(range(T)):
                 C_t = prev_seq[:, t, :]
                 C_t_d = prev_seq[:, t - d, :] if t - \
                     d >= 0 else torch.zeros_like(C_t)

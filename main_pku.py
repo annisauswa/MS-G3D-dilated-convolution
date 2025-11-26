@@ -45,7 +45,7 @@ def get_parser():
     parser.add_argument(
         '--config',
         # default='./config/nturgbd-cross-subject/train_joint.yaml',
-        default='/home/dsp520/Annisa/MS-G3D/config/nturgbd-cross-subject/train_joint_msg3d2.yaml',
+        default='/home/user/Annisa/Annisa-MS-G3D/MS-G3D/config/nturgbd-cross-subject/train_joint_msg3d.yaml',
         help='path to the configuration file')
     parser.add_argument(
         '--assume-yes',
@@ -472,7 +472,7 @@ class Processor():
         self.print_log(f'Training epoch: {epoch + 1}, LR: {current_lr:.4f}')
 
         process = tqdm(loader, dynamic_ncols=True)
-        for batch_idx, (data, label, distance, index) in enumerate(process):
+        for batch_idx, (data, label, distance, total_len, index) in enumerate(process):
             # print(data.shape, label.shape, index)
             self.global_step += 1
 
@@ -584,7 +584,7 @@ class Processor():
                 score_batches = []
                 step = 0
                 process = tqdm(self.data_loader[ln], dynamic_ncols=True)
-                for batch_idx, (data, label, index) in enumerate(process):
+                for batch_idx, (data, label, distance, total_len, index) in enumerate(process):
                     data = data.float().cuda(self.output_device)
                     label = label.long().cuda(self.output_device)
                     output = self.model(data)

@@ -3,7 +3,7 @@
 # work_dir: ./work_dir/ntu/xsub/msg3d_Contrastive_Learning_alpha_10_t_007_CosineAnnealingWarmRestarts_2
 
 # work_dir: ./work_dir/ntu/xsub/student_baseline_combine_CL_T001_beta1_neg_MCS_pos_within40
-work_dir: ./work_dir/pkummd/pkummd_150_ssnet_3
+work_dir: ./work_dir/pkummd/pkummd_150_ssnet2
 # feeder
 feeder: feeders.pku_feeder.Feeder
 
@@ -11,6 +11,7 @@ train_feeder_args:
   data_dir: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Data/PKU_Skeleton_Renew
   label_dir: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Label
   split_path: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Split/cross-subject.txt
+  length_dir: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Length
   window_size: 255
   stride: 50
   mode: "train"
@@ -28,23 +29,28 @@ test_feeder_args:
   data_dir: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Data/PKU_Skeleton_Renew
   label_dir: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Label
   split_path: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Split/cross-subject.txt
+  length_dir: /home/user/Annisa/Annisa-MS-G3D/MS-G3D/data/pkummd/Length
   window_size: 255
   stride: 1
   mode: "val"
   yaw: 0
   pitch: 0
   roll: 0
+  label_agg: "last"
   # debug: True
 
 # model
-model: model.ssnet.Model
-# model_args:
-#   num_class: 60
-#   num_point: 25
-#   num_person: 2
-#   num_gcn_scales: 13 # `num_scales` == `K + 1` in the paper
-#   num_g3d_scales: 6
-#   graph: graph.ntu_rgb_d.AdjMatrixGraph
+model: model.ssnet2.Model
+model_args:
+  in_ch: 150
+  hidden_ch: 50
+  
+  # num_class: 60
+  # num_point: 25
+  # num_person: 2
+  # num_gcn_scales: 13 # `num_scales` == `K + 1` in the paper
+  # num_g3d_scales: 6
+  # graph: graph.ntu_rgb_d.AdjMatrixGraph
 
 # optim
 weight_decay: 0.0005
@@ -53,10 +59,10 @@ step: [30, 40]
 
 # training
 num_epoch: 50
-device: [0]
+device: [0, 1]
 batch_size: 32
 forward_batch_size: 32
-test_batch_size: 32
+test_batch_size: 1
 nesterov: True
 # weights_t: /home/dsp520/Truc/AAGCN/work_dir/ntu/xsub/msg3d_Teacher/weights/weights-42-52584.pt
 
