@@ -41,6 +41,7 @@ class SSNetLoss(nn.Module):
         super().__init__()
         self.ce_loss = nn.CrossEntropyLoss()
         self.reg_loss_fn = nn.SmoothL1Loss(reduction='mean')
+        self.mse_loss = nn.MSELoss()
         self.alpha = alpha
 
     def forward(self, logits, s_pred, class_labels, distance_targets, mask=None):
@@ -50,6 +51,7 @@ class SSNetLoss(nn.Module):
             reg_loss = torch.tensor(0., device=logits.device)
         else:
             reg_loss = self.reg_loss_fn(s_pred[mask], distance_targets[mask])
+            # reg_loss = self.mse_loss(s_pred[mask], distance_targets[mask])
         total_loss = cls_loss + self.alpha * reg_loss
         return total_loss, cls_loss, reg_loss
 

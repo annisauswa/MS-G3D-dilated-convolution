@@ -295,7 +295,7 @@ class Processor():
         shutil.copy2(os.path.join('.', __file__), self.arg.work_dir)
 
         self.model = Model(**self.arg.model_args).cuda(output_device)
-        self.loss = SSNetLoss(alpha=0.5).cuda(output_device)
+        self.loss = SSNetLoss(alpha=1.0).cuda(output_device)
         # self.loss = nn.CrossEntropyLoss().cuda(output_device)
         self.print_log(f'Model total number of params: {count_params(self.model)}')
 
@@ -621,11 +621,16 @@ class Processor():
                 st_prev = None
                 process = tqdm(self.data_loader[ln], dynamic_ncols=True)
                 for batch_idx, (data, label, distance, total_len, index) in enumerate(process):
+                    B = data.size(0)
                     data = data.float().cuda(self.output_device)
                     label = label.long().cuda(self.output_device)
                     distance = distance.float().cuda(self.output_device)
                     distance_norm = distance.float() / self.max_distance
-                    output, s_pred = self.model(data, st_prev / self.max_distance if st_prev is not None else distance_norm)
+                    if st_prev is not None:
+                        st_prev_input = st_prev / self.max_distance
+                    else:
+                        st_prev_input = torch.ones((B, 1), device=data.device)
+                    output, s_pred = self.model(data, st_prev_input)
                     st_prev = s_pred * self.max_distance + 1
                     
                     if ((epoch + 1) % 1 == 0):
@@ -638,7 +643,7 @@ class Processor():
                             true_class = label[i].item()
                             f_log.write(
                                 f"Batch {batch_idx}, Sample {i}, "
-                                f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.0f}, st_prev: {st_prev[i].item():.0f}, s_gts: {true_dist:.0f}, T: {total_len}, "
+                                f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.0f}, st_prev: {st_prev_input[i].item() * self.max_distance:.0f}, s_gts: {true_dist:.0f}, T: {total_len[i].item()}, "
                                 f"class_pred: {pred_class}, class_gts: {true_class}\n"
                             )
                     # if isinstance(output, tuple):

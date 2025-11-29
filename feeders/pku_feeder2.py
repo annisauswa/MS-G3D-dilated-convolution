@@ -208,9 +208,7 @@ class Feeder(Dataset):
             start for start in range(0, total_frames - self.window_size + 1, self.stride)
         ]
 
-        # Build mapping: frame index -> file/video idx using cumulative sums
-        cum_frames = np.cumsum(self.file_frame_counts)  # e.g. [T1, T1+T2, ...]
-        # For each window start, find which file it belongs to (rightmost index where start < cum_frames)
+        cum_frames = np.cumsum(self.file_frame_counts) 
         self.window_to_video_idx = []
         for start in self.windows:
             vid_idx = int(np.searchsorted(cum_frames, start, side='right'))
