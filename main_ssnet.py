@@ -19,11 +19,99 @@ from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import MultiStepLR
 import apex
+from typing import List, Optional
 
 from utils import count_params, import_class
 from model.ssnet_tools import SSNetLoss
+from utils import f1, ap, aggregate_mapa
 
+def frames_to_segments(l_p: List[int],
+                             i_p: List[int],
+                             c_p: Optional[List[float]],
+                             last_idx: int,
+                             skip_label: int = 0,
+                             conf_mode: str = 'mean'):
+    """
+    Convert sparse per-sample lists into segments.
 
+    Args:
+      l_p: list/array of labels (ints)
+      i_p: list/array of frame indices corresponding to each label (ints)
+      c_p: list/array of confidences (floats) OR None for ground truth
+      last_idx: inclusive last frame index of the video
+      skip_label: label value to ignore (default 0)
+      conf_mode: 'mean' or 'max' to aggregate confidences when c_p is provided
+
+    Returns:
+      - If c_p is provided: list of np.array([label, start, end, conf], dtype=float)
+      - If c_p is None: list of np.array([label, start, end], dtype=int)
+    """
+    if not (len(l_p) == len(i_p)):
+        raise ValueError("l_p and i_p must have same length")
+    if c_p is not None and len(c_p) != len(l_p):
+        raise ValueError("c_p must be same length as l_p when provided")
+
+    labels = np.array(l_p, dtype=np.int64)
+    idxs = np.array(i_p, dtype=np.int64)
+    if c_p is not None:
+        confs = np.array(c_p, dtype=float)
+    else:
+        confs = None
+
+    if labels.size == 0:
+        return []
+
+    # sort by index (safety)
+    order = np.argsort(idxs)
+    labels = labels[order]
+    idxs = idxs[order]
+    if confs is not None:
+        confs = confs[order]
+
+    segments = []
+    t = 0
+    n = len(labels)
+
+    while t < n:
+        lab = int(labels[t])
+        # skip background / undesired label
+        if lab == skip_label:
+            t += 1
+            continue
+
+        start_idx = int(idxs[t])
+        run_conf = [float(confs[t])] if confs is not None else None
+
+        # merge consecutive same-label sparse samples
+        m = t + 1
+        while m < n and labels[m] == lab:
+            if confs is not None:
+                run_conf.append(float(confs[m]))
+            m += 1
+
+        # end is one frame before next sample's index, or last_idx
+        if m < n:
+            end_idx = int(idxs[m]) - 1
+        else:
+            end_idx = int(last_idx)
+
+        if end_idx < start_idx:
+            end_idx = start_idx
+
+        if confs is not None:
+            if conf_mode == 'mean':
+                seg_conf = float(np.mean(run_conf))
+            elif conf_mode == 'max':
+                seg_conf = float(np.max(run_conf))
+            else:
+                raise ValueError("conf_mode must be 'mean' or 'max'")
+            segments.append([lab, start_idx, end_idx, seg_conf])
+        else:
+            segments.append([lab, start_idx, end_idx])
+
+        t = m
+
+    return segments
 
 def init_seed(seed):
     torch.cuda.manual_seed_all(seed)
@@ -620,6 +708,9 @@ class Processor():
                 step = 0
                 st_prev = None
                 process = tqdm(self.data_loader[ln], dynamic_ncols=True)
+                l_p, i_p, c_p = [], [], []
+                last_idx = None
+                l_t, i_t = [], []
                 for batch_idx, (data, label, distance, total_len, index) in enumerate(process):
                     B = data.size(0)
                     data = data.float().cuda(self.output_device)
@@ -633,19 +724,35 @@ class Processor():
                     output, s_pred = self.model(data, st_prev_input)
                     st_prev = s_pred * self.max_distance + 1
                     
+                    probs = torch.softmax(output, dim=1)             
+                    conf, class_pred = probs.max(dim=1)  
+                    pred_dist_frames = (s_pred.squeeze(1) * float(self.max_distance)).detach()
+                                    
                     if ((epoch + 1) % 1 == 0):
-                        for i in range(data.size(0)):
+                        for i in range(B):
+                            idx = index[i].item()+254
                             pred_dist = s_pred[i].item()
                             pred_dist_dnorm = pred_dist * self.max_distance
                             # pred_dist_dnorm = pred_dist * distance.max().item()
                             true_dist = distance[i].item()
-                            pred_class = output[i].argmax().item()
+                            pred_class = class_pred[i].item()
+                            conf_class = conf[i].item()
                             true_class = label[i].item()
                             f_log.write(
-                                f"Batch {batch_idx}, Sample {i}, "
+                                f"Batch {batch_idx}, Sample {idx}, "
                                 f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.0f}, st_prev: {st_prev_input[i].item() * self.max_distance:.0f}, s_gts: {true_dist:.0f}, T: {total_len[i].item()}, "
-                                f"class_pred: {pred_class}, class_gts: {true_class}\n"
+                                f"class_pred: {pred_class}, class_gts: {true_class}, conf: {conf_class:.2f}\n"
                             )
+                            i_p.append(idx)
+                            l_p.append(pred_class)
+                            c_p.append(conf_class)
+                            last_idx = idx
+                            i_t.append(idx)
+                            l_t.append(true_class)
+                        
+                    lst = frames_to_segments(l_p, i_p, c_p, last_idx, skip_label=0, conf_mode='mean')
+                    ground = frames_to_segments(l_t, i_t, None, last_idx, skip_label=0, conf_mode='mean')
+                    
                     # if isinstance(output, tuple):
                     #     output, l1 = output
                     #     l1 = l1.mean()
@@ -682,7 +789,15 @@ class Processor():
 
                     mse_list.append(batch_mse)
                     mae_list.append(batch_mae)
-
+            
+            ratio = 0.5
+            number_label = 52
+            lst_a = aggregate_mapa(lst, number_label)
+            ground_a = aggregate_mapa(ground, number_label)
+            ap_score = ap(lst, 0.5, ground)
+            mAP_action = sum([ap(lst_a[x+1], ratio, ground_a[x+1]) \
+		                    for x in range(number_label-1)])/(number_label-1)
+            
             score = np.concatenate(score_batches)
             loss = np.mean(loss_values)
             accuracy = self.data_loader[ln].dataset.top_k(score, 1)
@@ -704,6 +819,9 @@ class Processor():
             epoch_mse = np.mean(mse_list)
             epoch_rmse = np.sqrt(epoch_mse)
             epoch_mae = np.mean(mae_list)
+            
+            self.print_log(f'\tAP Score: {ap_score:.4f}')
+            self.print_log(f'\tmAP_action: {mAP_action:.4f}\n')
 
             self.print_log(f'\tRegression MSE(px):  {epoch_mse:.4f}')
             self.print_log(f'\tRegression RMSE(px): {epoch_rmse:.4f}')

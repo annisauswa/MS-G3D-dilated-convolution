@@ -1,7 +1,7 @@
 amp_opt_level: 1
 assume_yes: false
 base_lr: 0.05
-batch_size: 16
+batch_size: 8
 checkpoint: null
 config: /home/user/Annisa/MS-G3D-dilated-convolution/config/nturgbd-cross-subject/train_joint_msg3d_ssnet.yaml
 debug: false
@@ -9,7 +9,7 @@ device: [0]
 eval_interval: 1
 eval_start: 1
 feeder: feeders.pku_feeder2.Feeder
-forward_batch_size: 16
+forward_batch_size: 8
 half: false
 ignore_weights: []
 log_interval: 100
@@ -39,14 +39,14 @@ start_epoch: 0
 step:
 - 30
 - 40
-test_batch_size: 16
+test_batch_size: 8
 train_feeder_args:
-  data_dir: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Data/PKU_Skeleton_Renew
-  label_dir: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Label
-  split_path: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Split/cross-subject.txt
-  length_dir: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Length
+  data_dir: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Data/PKU_Skeleton_Renew
+  label_dir: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Label
+  split_path: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Split/cross-subject.txt
+  length_dir: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Length
   window_size: 255
-  stride: 50
+  stride: 5000
   mode: "train"
   yaw: 0
   pitch: 0
@@ -59,12 +59,12 @@ train_feeder_args:
   normalization: False
 
 test_feeder_args:
-  data_dir: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Data/PKU_Skeleton_Renew
-  label_dir: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Label
-  split_path: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Split/cross-subject.txt
-  length_dir: /home/user/Annisa/MS-G3D-dilated-convolution/data/pkummd/Length
+  data_dir: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Data/PKU_Skeleton_Renew
+  label_dir: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Label
+  split_path: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Split/cross-subject.txt
+  length_dir: /home/dsp520/Annisa/MS-G3D-dilated-convolution/data/pkummd/Length
   window_size: 255
-  stride: 1
+  stride: 5000
   mode: "val"
   yaw: 0
   pitch: 0

@@ -252,7 +252,7 @@ class Feeder(Dataset):
 
         data_window = self.data[start:end]      # (window_size, 150)
         label_window = self.label[start:end]   # (window_size,)
-        total_len = self.length[idx]  # (window_size,)
+        total_len = self.length[idx + self.window_size - 1]  # (window_size,)
         out_label = self.window_labels[idx]
 
         last_class = label_window[-1]
