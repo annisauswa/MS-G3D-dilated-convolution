@@ -599,7 +599,6 @@ class Processor():
                     for i in range(batch_data.size(0)):
                         pred_dist = s_pred[i].item()
                         pred_dist_dnorm = pred_dist* self.max_distance
-                        # pred_dist_dnorm = pred_dist * distance.max().item()
                         true_dist = distance[i].item()
                         pred_class = output[i].argmax().item()
                         true_class = batch_label[i].item()
@@ -692,9 +691,13 @@ class Processor():
             f_w = open(wrong_file, 'w')
         if result_file is not None:
             f_r = open(result_file, 'w')
-            
-        log_file = os.path.join(self.arg.work_dir, f'eval_epoch{epoch+1}.txt')
-        f_log = open(log_file, 'w')
+        
+        if ((epoch + 1) % 1 == 0):
+            log_file = os.path.join(self.arg.work_dir, f'eval_epoch{epoch+1}.txt')
+            f_log = open(log_file, 'w')
+
+        AP_log = os.path.join(self.arg.work_dir, f'eval_AP_epoch{epoch+1}.txt')
+        f_AP = open(AP_log, 'w')
             
         with torch.no_grad():
             self.model = self.model.cuda(self.output_device)
@@ -738,20 +741,18 @@ class Processor():
                             pred_class = class_pred[i].item()
                             conf_class = conf[i].item()
                             true_class = label[i].item()
-                            f_log.write(
-                                f"Batch {batch_idx}, Sample {idx}, "
-                                f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.0f}, st_prev: {st_prev_input[i].item() * self.max_distance:.0f}, s_gts: {true_dist:.0f}, T: {total_len[i].item()}, "
-                                f"class_pred: {pred_class}, class_gts: {true_class}, conf: {conf_class:.2f}\n"
-                            )
+                            if ((epoch + 1) % 1 == 0):
+                                f_log.write(
+                                    f"Batch {batch_idx}, Sample {idx}, "
+                                    f"s_pred: {pred_dist:.4f}, s_pred_dnorm: {pred_dist_dnorm:.0f}, st_prev: {st_prev_input[i].item() * self.max_distance:.0f}, s_gts: {true_dist:.0f}, T: {total_len[i].item()}, "
+                                    f"class_pred: {pred_class}, class_gts: {true_class}, conf: {conf_class:.2f}\n"
+                                )
                             i_p.append(idx)
                             l_p.append(pred_class)
                             c_p.append(conf_class)
                             last_idx = idx
                             i_t.append(idx)
                             l_t.append(true_class)
-                        
-                    lst = frames_to_segments(l_p, i_p, c_p, last_idx, skip_label=0, conf_mode='mean')
-                    ground = frames_to_segments(l_t, i_t, None, last_idx, skip_label=0, conf_mode='mean')
                     
                     # if isinstance(output, tuple):
                     #     output, l1 = output
@@ -781,22 +782,44 @@ class Processor():
                             if x != true[i] and wrong_file is not None:
                                 f_w.write(str(index[i]) + ',' + str(x) + ',' + str(true[i]) + '\n')
 
-                    dist_max = distance.max().item()
-                    s_pred_dnorm = s_pred * dist_max     # predicted pixel distances
-                    true_dnorm  = distance               # true pixel distances (already in px)
-                    batch_mse = torch.mean((s_pred_dnorm - true_dnorm) ** 2).item()
-                    batch_mae = torch.mean(torch.abs(s_pred_dnorm - true_dnorm)).item()
+                    batch_mse = torch.mean((st_prev - distance) ** 2).item()
+                    batch_mae = torch.mean(torch.abs(st_prev - distance)).item()
 
                     mse_list.append(batch_mse)
                     mae_list.append(batch_mae)
             
+            lst = frames_to_segments(l_p, i_p, c_p, last_idx, skip_label=0, conf_mode='mean')
+            ground = frames_to_segments(l_t, i_t, None, last_idx, skip_label=0, conf_mode='mean')
             ratio = 0.5
+            thresholds = [0.1, 0.3, 0.5, 0.7]
             number_label = 52
+            ap_list, mAP_list, F1_list, TP_list, FN_list, FP_list = [], [], [], [], [], []
+            
+            f_AP.write(f"Evaluation for video / epoch ... last_idx={last_idx}\n")
+            f_AP.write(f"Total proposals: {len(lst)}, Total ground: {len(ground)}\n\n")
+
             lst_a = aggregate_mapa(lst, number_label)
             ground_a = aggregate_mapa(ground, number_label)
-            ap_score = ap(lst, 0.5, ground)
-            mAP_action = sum([ap(lst_a[x+1], ratio, ground_a[x+1]) \
-		                    for x in range(number_label-1)])/(number_label-1)
+            for th in thresholds:
+                try:
+                    ap_score = ap(lst, th, ground) if len(lst) > 0 and len(ground) > 0 else 0.0
+                except Exception as e:
+                    ap_score = 0.0
+                    f_AP.write(f"Warning: AP computation failed at th={th}: {e}\n")
+
+                mAP_action = sum([ap(lst_a[x+1], th, ground_a[x+1]) \
+                                for x in range(number_label-1)])/(number_label-1)
+                try:
+                    f1_score, TP, FP, FN = f1(lst, th, ground)
+                except Exception:
+                    f1_score, TP, FP, FN = 0.0, 0, 0, 0
+
+                ap_list.append(ap_score)
+                mAP_list.append(mAP_action)
+                F1_list.append(f1_score)
+                TP_list.append(TP)
+                FP_list.append(FP)
+                FN_list.append(FN)
             
             score = np.concatenate(score_batches)
             loss = np.mean(loss_values)
@@ -819,13 +842,38 @@ class Processor():
             epoch_mse = np.mean(mse_list)
             epoch_rmse = np.sqrt(epoch_mse)
             epoch_mae = np.mean(mae_list)
-            
-            self.print_log(f'\tAP Score: {ap_score:.4f}')
-            self.print_log(f'\tmAP_action: {mAP_action:.4f}\n')
+
+            dAP = sum([ap(lst, (ratio+1)*0.05, ground) \
+		                    for ratio in range(20)])/20
+            self.print_log("=== AP / mAP / F1 summary by IoU threshold ===")
+            self.print_log(f"2D-AP: {dAP:.3f}") 
+            for th, apv, map_a, f1v, tp, fp, fn in zip(thresholds, ap_list, mAP_list, F1_list, TP_list, FP_list, FN_list):
+                self.print_log(f"Threshold {th:.2f}:")
+                self.print_log(f"\tAP Score:      {apv:.3f}")
+                self.print_log(f"\tmAP_action:    {map_a:.3f}")
+                self.print_log(f"\tF1 Score:      {f1v:.3f}")
+                self.print_log("\tConfusion matrix:")
+                self.print_log(f"\t\t[{tp:>6}  {fn:>6}]")
+                self.print_log(f"\t\t[{fp:>6}  {0:>6}]\n")
+
+            f_AP.write("=== AP / mAP / F1 summary by IoU threshold ===\n")
+            f_AP.write(f"2D-AP: {dAP}\n")
+            for th, apv, map_a, f1v, tp, fp, fn in zip(thresholds, ap_list, mAP_list, F1_list, TP_list, FP_list, FN_list):
+                f_AP.write(
+                    f"Threshold {th:.2f}:\n"
+                    f"  AP:  {apv:.3f}\n"
+                    f"  mAP_action: {map_a:.3f}\n"
+                    f"  F1: {f1v:.3f}\n"
+                    f"  Confusion matrix:\n"
+                    f"   [{tp:>6}  {fn:>6}]\n"
+                    f"   [{fp:>6}    0]\n\n"
+                )
+            f_AP.write(f"proposals: \n{lst}\n\n")
+            f_AP.write(f"grounds: \n{ground}")
 
             self.print_log(f'\tRegression MSE(px):  {epoch_mse:.4f}')
             self.print_log(f'\tRegression RMSE(px): {epoch_rmse:.4f}')
-            self.print_log(f'\tRegression MAE(px):  {epoch_mae:.4f}')
+            self.print_log(f'\tRegression MAE(px):  {epoch_mae:.4f}\n\n')
 
             if self.arg.phase == 'train' and not self.arg.debug:
                 self.val_writer.add_scalar('regression_mse', epoch_mse, self.global_step)
@@ -848,7 +896,7 @@ class Processor():
             for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
                 save_model = ((epoch + 1) % self.arg.save_interval == 0) or (epoch + 1 == self.arg.num_epoch)
                 self.train(epoch, save_model=save_model)
-                if(epoch + 1) % 2 == 0:
+                if(epoch + 1) % 4 == 0:
                     self.eval(epoch, save_score=self.arg.save_score, loader_name=['test'])
 
             num_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)

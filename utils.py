@@ -34,8 +34,18 @@ def match(lst, ratio, ground):
 		l_p, s_p, e_p, c_p = prop
 		l_g, s_g, e_g = ground
 		if (int(l_p) != int(l_g)): return 0
-		# if (v_p != v_g): return 0
-		return (min(e_p, e_g)-max(s_p, s_g))/(max(e_p, e_g)-min(s_p, s_g))
+		if int(l_p) != int(l_g):
+			return 0
+
+		intersection = min(e_p, e_g) - max(s_p, s_g)
+		union = max(e_p, e_g) - min(s_p, s_g)
+
+		# prevent division by zero
+		if union <= 0:
+			return 0
+
+		return max(0, intersection) / union
+		# return (min(e_p, e_g)-max(s_p, s_g))/(max(e_p, e_g)-min(s_p, s_g))
 
 	cos_map = [-1 for x in range(len(lst))]
 	count_map = [0 for x in range(len(ground))]
@@ -56,8 +66,11 @@ def match(lst, ratio, ground):
 def f1(lst, ratio, ground):
 	cos_map, count_map, positive = match(lst, ratio, ground)
 	precision, recall = calc_pr(positive, len(lst), len(ground))
+
+	if precision == 0 or recall == 0: return 0.0, positive, len(lst)-positive, len(ground)-positive
+	
 	score = 2*precision*recall/(precision+recall)
-	return score
+	return score, positive, len(lst)-positive, len(ground)-positive # F1, TP, FP, FN
 
 def ap(lst, ratio, ground):
 	lst.sort(key = lambda x:x[3]) # sorted by confidence
