@@ -1,4 +1,4 @@
-# MS-G3D
+# MS-G3D + SSNet (Temporal Dilated Convolution)
 
 ## Result
 https://github.com/user-attachments/assets/33871161-5050-41cc-8b6c-08bb4d32e97b
